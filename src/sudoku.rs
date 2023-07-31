@@ -54,31 +54,15 @@ impl<F: FieldExt> SudokuChip<F> {
             let only_first_enabled = meta.query_selector(only_first_enabled);
             let total_sum = Expression::Constant(F::from(45u64)); // the sum must be 45
 
-            let a = meta.query_advice(first_column, Rotation::cur());
-            let b = meta.query_advice(first_column, Rotation::next());
-            let c = meta.query_advice(first_column, Rotation(2));
-            let d = meta.query_advice(first_column, Rotation(3));
-            let e = meta.query_advice(first_column, Rotation(4));
-            let f = meta.query_advice(first_column, Rotation(5));
-            let g = meta.query_advice(first_column, Rotation(6));
-            let h = meta.query_advice(first_column, Rotation(7));
-            let i = meta.query_advice(first_column, Rotation(8));
+            let mut sum: Expression<F> = Expression::Constant(F::zero());
+            for i in 0..9 {
+                sum = sum + meta.query_advice(first_column, Rotation(i)); // Here increment
+            }
 
-            print!("a: {:?}\n", a);
-            print!("e: {:?}\n", e);
-            print!("i: {:?}\n", i);
+            print!("sum: {:?}\n", sum);
             print!("total_sum: {:?}\n", total_sum);
-            vec![only_first_enabled * (a + b + c + d + e + f + g + h + i - total_sum)]
 
-            // let mut sum: Expression<F> = Expression::Constant(F::zero());
-            // for i in 0..9 {
-            //     sum = sum + meta.query_advice(first_column, Rotation(i)); // Here increment
-            // }
-
-            // print!("sum: {:?}\n", sum);
-            // print!("total_sum: {:?}\n", total_sum);
-
-            // vec![only_first_enabled * (sum - total_sum)]
+            vec![only_first_enabled * (sum - total_sum)]
         });
 
         SudokuConfig {
@@ -175,8 +159,8 @@ mod tests {
         let prover = MockProver::run(k, &circuit, vec![public_input.clone()]).unwrap();
         prover.assert_satisfied();
 
-        // public_input[1] += Fp::one();
-        // let _prover = MockProver::run(k, &circuit, vec![public_input]).unwrap();
+        public_input[1] += Fp::one();
+        let _prover = MockProver::run(k, &circuit, vec![public_input]).unwrap();
         // uncomment the following line and the assert will fail
         // _prover.assert_satisfied();
     }
