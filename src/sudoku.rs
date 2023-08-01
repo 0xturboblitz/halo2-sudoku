@@ -39,16 +39,16 @@ impl<F: FieldExt> SudokuChip<F> {
             meta.enable_equality(inst);
         }
 
-        //  advice[0]  |   ...   |  advice[8]  | always_enabled | only_first_enabled
-        //      5      |         |      7      |       1        |         1
-        //      7      |         |      1      |       1        |         0
-        //      1      |         |      2      |       1        |         0
-        //      6      |         |      9      |       1        |         0
-        //      2      |         |      3      |       1        |         0
-        //      4      |         |      6      |       1        |         0
-        //      3      |         |      4      |       1        |         0
-        //      9      |         |      8      |       1        |         0
-        //      8      |         |      5      |       1        |         0
+        //   advice[0]  |   ...   |  advice[8]  | always_enabled | only_first_enabled
+        //       5      |         |      7      |       1        |         1
+        //       7      |         |      1      |       1        |         0
+        //       1      |         |      2      |       1        |         0
+        //       6      |         |      9      |       1        |         0
+        //       2      |         |      3      |       1        |         0
+        //       4      |         |      6      |       1        |         0
+        //       3      |         |      4      |       1        |         0
+        //       9      |         |      8      |       1        |         0
+        //       8      |         |      5      |       1        |         0
 
         meta.create_gate("test gate", |meta| {
             let only_first_enabled = meta.query_selector(only_first_enabled);
@@ -63,9 +63,7 @@ impl<F: FieldExt> SudokuChip<F> {
             ]
         });
 
-        // This does two things:
-        // 1. Ensure every element is < 10
-        // 2. Ensure every element is != 0
+        // Range check 0 < x < 10
         meta.create_gate("range check", |meta| {
             let only_first_enabled = meta.query_selector(only_first_enabled);
 
@@ -126,6 +124,42 @@ impl<F: FieldExt> SudokuChip<F> {
                 );
                 constraints
                     .push(only_first_enabled.clone() * (sum - Expression::Constant(F::from(45))));
+            }
+
+            constraints
+        });
+
+        meta.create_gate("3x3 squares", |meta| {
+            let only_first_enabled = meta.query_selector(only_first_enabled);
+
+            let mut constraints = Vec::new();
+
+            for i in 0..3 {
+                for j in 0..3 {
+                    let product = (0..3).fold(Expression::Constant(F::from(1)), |expr_outer, k| {
+                        expr_outer
+                            * (0..3).fold(Expression::Constant(F::from(1)), |expr_inner, l| {
+                                expr_inner
+                                    * meta.query_advice(advice[i * 3 + k], Rotation(j * 3 + l))
+                            })
+                    });
+
+                    let sum = (0..3).fold(Expression::Constant(F::from(0)), |expr_outer, k| {
+                        expr_outer
+                            + (0..3).fold(Expression::Constant(F::from(0)), |expr_inner, l| {
+                                expr_inner
+                                    + meta.query_advice(advice[i * 3 + k], Rotation(j * 3 + l))
+                            })
+                    });
+
+                    constraints.push(
+                        only_first_enabled.clone()
+                            * (product - Expression::Constant(F::from(362880))),
+                    );
+                    constraints.push(
+                        only_first_enabled.clone() * (sum - Expression::Constant(F::from(45))),
+                    );
+                }
             }
 
             constraints
@@ -246,8 +280,8 @@ mod tests {
             vec![7, 0, 2, 0, 3, 6, 0, 8, 5],
         ];
 
-        let mut public_input: Vec<Vec<Fp>> = convert_sudoku_to_fp(public_grid);
-        let private_input = convert_sudoku_to_fp(solution);
+        let mut public_input: Vec<Vec<Fp>> = u64_grid_to_fp_grid(public_grid);
+        let private_input = u64_grid_to_fp_grid(solution);
 
         let circuit = MyCircuit {
             solution: private_input.clone(),
@@ -259,10 +293,10 @@ mod tests {
         public_input[0][0] += Fp::one();
         let _prover = MockProver::run(k, &circuit, public_input).unwrap();
         // uncomment the following line and the assert will fail
-        // _prover.assert_satisfied();
+        _prover.assert_satisfied();
     }
 
-    fn convert_sudoku_to_fp(sudoku: Vec<Vec<u64>>) -> Vec<Vec<Fp>> {
+    fn u64_grid_to_fp_grid(sudoku: Vec<Vec<u64>>) -> Vec<Vec<Fp>> {
         sudoku
             .into_iter()
             .map(|row| row.into_iter().map(Fp::from).collect())
