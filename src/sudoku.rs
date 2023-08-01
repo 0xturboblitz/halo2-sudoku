@@ -1,9 +1,5 @@
-use halo2_proofs::{arithmetic::FieldExt, circuit::*, pasta::Fp, plonk::*, poly::Rotation};
+use halo2_proofs::{arithmetic::FieldExt, circuit::*, plonk::*, poly::Rotation};
 use std::marker::PhantomData;
-
-// Fixed : fixed in the circuit
-// Advice : witness values
-// Instance : public inputs
 
 #[derive(Debug, Clone)]
 struct ACell<F: FieldExt>(AssignedCell<F, F>);
@@ -82,7 +78,7 @@ impl<F: FieldExt> SudokuChip<F> {
                     // Given a range R and a value v, returns the expression
                     // (1 - v) * (2 - v) * ... * (R - 1 - v)
                     let range_check = |range: usize, value: Expression<F>| {
-                        (1..range).fold(Expression::Constant(F::from(1 as u64)), |expr, k| {
+                        (1..range).fold(Expression::Constant(F::from(1)), |expr, k| {
                             expr * (Expression::Constant(F::from(k as u64)) - value.clone())
                         })
                     };
@@ -94,32 +90,46 @@ impl<F: FieldExt> SudokuChip<F> {
             constraints
         });
 
-        // meta.create_gate("sudoku_column", |meta| {
-        //     let only_first_enabled = meta.query_selector(only_first_enabled);
+        meta.create_gate("rows", |meta| {
+            let always_enabled = meta.query_selector(always_enabled);
 
-        //     meta.fi
-        //     // let element = meta.query_advice(*col, Rotation(i));
-        //     // for i in 0..9 {
-        //     //     let a = meta.query_advice(advice[i], Rotation(0));
-        //     //     println!("a: {:?}", a);
-        //     // }
+            let product = (0..9).fold(Expression::Constant(F::from(1)), |expr, i| {
+                expr * meta.query_advice(advice[i], Rotation::cur())
+            });
 
-        //     // Compute the product of (x - number) for all numbers.
-        //     let product = numbers
-        //         .iter()
-        //         .fold((Expression::Constant(F::one())), |acc, number| {
-        //             acc * (Expression::variable(X) - number)
-        //         });
+            let sum = (0..9).fold(Expression::Constant(F::from(0)), |expr, i| {
+                expr + meta.query_advice(advice[i], Rotation::cur())
+            });
 
-        //     // The product is a polynomial of degree n if and only if the numbers are all distinct.
-        //     // Therefore, the top degree coefficient of the product must be 1.
-        //     let top_degree_coefficient = product.coefficients().last().unwrap();
+            vec![
+                always_enabled.clone() * (product - Expression::Constant(F::from(362880))),
+                always_enabled * (sum - Expression::Constant(F::from(45))),
+            ]
+        });
 
-        //     vec![
-        //         only_first_enabled
-        //             * (Expression::Constant(F::from(9)) - Expression::Constant(F::from(9))),
-        //     ]
-        // });
+        meta.create_gate("columns", |meta| {
+            let only_first_enabled = meta.query_selector(only_first_enabled);
+
+            let mut constraints = Vec::new();
+
+            for i in 0..9 {
+                let product = (0..9).fold(Expression::Constant(F::from(1)), |expr, j| {
+                    expr * meta.query_advice(advice[i], Rotation(j))
+                });
+
+                let sum = (0..9).fold(Expression::Constant(F::from(0)), |expr, j| {
+                    expr + meta.query_advice(advice[i], Rotation(j))
+                });
+
+                constraints.push(
+                    only_first_enabled.clone() * (product - Expression::Constant(F::from(362880))),
+                );
+                constraints
+                    .push(only_first_enabled.clone() * (sum - Expression::Constant(F::from(45))));
+            }
+
+            constraints
+        });
 
         SudokuConfig {
             always_enabled,
@@ -142,7 +152,7 @@ impl<F: FieldExt> SudokuChip<F> {
                     self.config.always_enabled.enable(&mut region, row)?; // enable the whole column
                 }
 
-                // first, assign the public cells
+                // assign the public cells
                 for row in 0..9 {
                     for col in 0..9 {
                         // if it's zero in solution, it must be public
@@ -159,16 +169,12 @@ impl<F: FieldExt> SudokuChip<F> {
                     }
                 }
 
-                // then, add the solution cells
+                // add the solution cells
                 for row in 0..9 {
                     for col in 0..9 {
                         if solution[row][col] == F::zero() {
                             continue;
                         }
-                        // println!(
-                        //     "Assigning {:?} to advice column {}, row: {}",
-                        //     solution[row][col], row, col,
-                        // );
                         region.assign_advice(
                             || format!("copy row {} col {} from solution to advice", row, col),
                             self.config.advice[row],
@@ -233,7 +239,7 @@ mod tests {
             vec![0, 2, 6, 3, 8, 9, 0, 5, 0],
             vec![3, 0, 9, 0, 5, 1, 2, 6, 0],
             vec![0, 5, 7, 4, 0, 2, 0, 3, 6],
-            vec![1, 6, 3, 0, 8, 0, 5, 4, 2],
+            vec![1, 6, 3, 0, 9, 0, 5, 4, 2],
             vec![2, 4, 0, 5, 0, 3, 9, 7, 0],
             vec![0, 9, 4, 2, 7, 0, 6, 0, 3],
             vec![0, 3, 0, 1, 4, 8, 7, 2, 0],
@@ -263,34 +269,3 @@ mod tests {
             .collect()
     }
 }
-
-// let mut sum = 0;
-
-// for col in &advice[0..9] {
-//     // for each column, let's check the column is valid
-//     let mut num_set = HashSet::new();
-//     for i in 0..9 {
-//         let element = meta.query_advice(*col, Rotation(i));
-//         num_set.insert(element);
-//     }
-
-//     if num_set.len() != 9 {
-//         continue;
-//     }
-
-//     for i in 1..=9 {
-//         if !num_set.contains(&Fp::from(i)) {
-//             // break also from the outer loop
-//             break;
-//         }
-//     }
-//     sum += 1;
-// }
-
-// let mut sum: Expression<F> = Expression::Constant(F::zero());
-// for i in 0..9 {
-//     sum = sum + meta.query_advice(first_column, Rotation(i)); // Here increment
-// }
-
-// print!("sum: {:?}\n", sum);
-// print!("total_sum: {:?}\n", total_sum);
