@@ -54,7 +54,23 @@ impl<F: FieldExt> SudokuChip<F> {
         //      9      |         |      8      |       1        |         0
         //      8      |         |      5      |       1        |         0
 
-        meta.create_gate("upper range check", |meta| {
+        meta.create_gate("test gate", |meta| {
+            let only_first_enabled = meta.query_selector(only_first_enabled);
+
+            vec![
+                only_first_enabled.clone()
+                    * (Expression::Constant(F::from(5))
+                        - meta.query_advice(advice[0], Rotation::cur())),
+                only_first_enabled
+                    * (Expression::Constant(F::from(7))
+                        - meta.query_advice(advice[0], Rotation::next())),
+            ]
+        });
+
+        // This does two things:
+        // 1. Ensure every element is < 10
+        // 2. Ensure every element is != 0
+        meta.create_gate("range check", |meta| {
             let only_first_enabled = meta.query_selector(only_first_enabled);
 
             let mut constraints = Vec::new();
@@ -63,28 +79,19 @@ impl<F: FieldExt> SudokuChip<F> {
                 for j in 0..9 {
                     let element = meta.query_advice(advice[i], Rotation(j));
 
+                    // Given a range R and a value v, returns the expression
+                    // (1 - v) * (2 - v) * ... * (R - 1 - v)
                     let range_check = |range: usize, value: Expression<F>| {
-                        (1..range).fold(value.clone(), |expr, k| {
+                        (1..range).fold(Expression::Constant(F::from(1 as u64)), |expr, k| {
                             expr * (Expression::Constant(F::from(k as u64)) - value.clone())
                         })
                     };
 
                     constraints.push(only_first_enabled.clone() * range_check(10, element.clone()));
-                    // constraints.push(range_check(10, element.clone()));
                 }
             }
 
             constraints
-            // Constraints::with_selector(only_first_enabled, constraints)
-
-            // vec![
-            //     only_first_enabled.clone()
-            //         * (Expression::Constant(F::from(5))
-            //             - meta.query_advice(advice[0], Rotation::cur())),
-            //     only_first_enabled
-            //         * (Expression::Constant(F::from(7))
-            //             - meta.query_advice(advice[0], Rotation::next())),
-            // ]
         });
 
         // meta.create_gate("sudoku_column", |meta| {
